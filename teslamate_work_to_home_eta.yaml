@@ -1,0 +1,400 @@
+blueprint:
+  name: TeslaMate Work-to-Home ETA Notification
+  description: >-
+    Sends an opinionated mobile notification when a Tesla leaves a selected work
+    location and Home becomes the current TeslaMate navigation destination.
+
+    This blueprint is designed for TeslaMate MQTT entities discovered in Home
+    Assistant. It remembers that the journey originated at work, waits for the
+    route data to stabilize, sends one notification, and resets after the car
+    arrives home or the journey timeout expires.
+
+    Before creating the automation, create two Toggle helpers:
+
+    1. A journey-armed helper, such as `input_boolean.tesla_departed_work`.
+    2. A notification-sent helper, such as `input_boolean.tesla_home_eta_sent`.
+
+    TeslaMate exposes the current active destination. For a route such as
+    Work → Daycare → Home, the notification is sent when Home becomes the active
+    destination after the intermediate stop.
+  domain: automation
+  author: Kurtis Guy
+  homeassistant:
+    min_version: 2024.10.0
+  input:
+    vehicle:
+      name: Vehicle and TeslaMate entities
+      icon: mdi:car-electric
+      input:
+        shift_state_sensor:
+          name: Shift-state sensor
+          description: TeslaMate shift-state sensor. Drive is normally reported as `D`.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        vehicle_tracker:
+          name: Vehicle location tracker
+          description: TeslaMate device tracker for the vehicle location.
+          selector:
+            entity:
+              filter:
+                domain: device_tracker
+        geofence_sensor:
+          name: TeslaMate geofence sensor
+          description: Sensor that reports the current TeslaMate geofence name.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        route_destination_sensor:
+          name: Active-route destination sensor
+          description: TeslaMate sensor containing the current navigation destination.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        route_minutes_sensor:
+          name: Minutes-to-arrival sensor
+          description: TeslaMate sensor containing total route minutes, including traffic.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        route_distance_sensor:
+          name: Distance-to-arrival sensor
+          description: TeslaMate sensor containing the remaining route distance.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+        traffic_delay_sensor:
+          name: Traffic-delay sensor
+          description: TeslaMate sensor containing traffic-delay minutes.
+          selector:
+            entity:
+              filter:
+                domain: sensor
+
+    locations:
+      name: Work and home
+      icon: mdi:map-marker-path
+      input:
+        work_zone:
+          name: Work zone
+          description: Home Assistant zone surrounding the work location.
+          selector:
+            entity:
+              filter:
+                domain: zone
+        home_zone:
+          name: Home zone
+          description: Home Assistant zone used to reset the journey after arrival.
+          selector:
+            entity:
+              filter:
+                domain: zone
+        work_geofence_name:
+          name: TeslaMate work geofence name
+          description: Exact state reported by the TeslaMate geofence sensor at work.
+          selector:
+            text: {}
+        home_destination_name:
+          name: Home destination name
+          description: Exact destination shown by TeslaMate when navigating home.
+          default: Home
+          selector:
+            text: {}
+
+    helpers:
+      name: Journey-state helpers
+      icon: mdi:toggle-switch
+      description: Create both as Toggle helpers before configuring this blueprint.
+      input:
+        journey_armed_helper:
+          name: Journey-armed helper
+          description: Remembers that the current journey originated at work.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+        notification_sent_helper:
+          name: Notification-sent helper
+          description: Prevents duplicate notifications during the same journey.
+          selector:
+            entity:
+              filter:
+                domain: input_boolean
+
+    notification:
+      name: Mobile notification
+      icon: mdi:message-alert
+      input:
+        traveler_name:
+          name: Traveler name
+          description: Name shown in the notification title.
+          default: The driver
+          selector:
+            text: {}
+        notification_service:
+          name: Mobile notification action
+          description: >-
+            Full Home Assistant notify action, for example
+            `notify.mobile_app_stephanis_iphone`.
+          selector:
+            text: {}
+        notification_tag:
+          name: Notification tag
+          description: Used by the mobile app to group or replace this notification.
+          default: teslamate-work-home-eta
+          selector:
+            text: {}
+        interruption_level:
+          name: iOS interruption level
+          description: Mobile app interruption level. `active` is recommended.
+          default: active
+          selector:
+            select:
+              options:
+                - passive
+                - active
+                - time-sensitive
+                - critical
+              mode: dropdown
+
+    behavior:
+      name: Behavior
+      icon: mdi:cog
+      collapsed: true
+      input:
+        drive_state:
+          name: Drive state
+          description: State reported by the shift sensor when the car is in Drive.
+          default: D
+          selector:
+            text: {}
+        route_stabilization_seconds:
+          name: Route stabilization delay
+          description: Time to wait before sending, allowing TeslaMate route data to settle.
+          default: 45
+          selector:
+            number:
+              min: 10
+              max: 180
+              step: 5
+              unit_of_measurement: seconds
+              mode: slider
+        journey_timeout:
+          name: Journey timeout
+          description: Maximum time the work-origin journey remains armed.
+          default:
+            hours: 4
+          selector:
+            duration: {}
+        use_work_zone_fallback:
+          name: Use work-zone distance fallback
+          description: >-
+            Also accept departure when the car is near the selected work zone, useful
+            if the TeslaMate geofence clears immediately after shifting into Drive.
+          default: true
+          selector:
+            boolean: {}
+        work_zone_distance:
+          name: Maximum distance from work zone
+          description: >-
+            Distance accepted by the fallback, expressed in your Home Assistant
+            system distance unit (miles for US customary, kilometers for metric).
+          default: 0.5
+          selector:
+            number:
+              min: 0.1
+              max: 3
+              step: 0.1
+              mode: box
+
+mode: parallel
+max: 10
+max_exceeded: silent
+
+variables:
+  shift_state_sensor: !input shift_state_sensor
+  vehicle_tracker: !input vehicle_tracker
+  geofence_sensor: !input geofence_sensor
+  route_destination_sensor: !input route_destination_sensor
+  route_minutes_sensor: !input route_minutes_sensor
+  route_distance_sensor: !input route_distance_sensor
+  traffic_delay_sensor: !input traffic_delay_sensor
+  work_zone: !input work_zone
+  work_geofence_name: !input work_geofence_name
+  home_destination_name: !input home_destination_name
+  journey_armed_helper: !input journey_armed_helper
+  notification_sent_helper: !input notification_sent_helper
+  traveler_name: !input traveler_name
+  notification_service: !input notification_service
+  notification_tag: !input notification_tag
+  interruption_level: !input interruption_level
+  drive_state: !input drive_state
+  route_stabilization_seconds: !input route_stabilization_seconds
+  use_work_zone_fallback: !input use_work_zone_fallback
+  work_zone_distance: !input work_zone_distance
+
+triggers:
+  - trigger: state
+    entity_id: !input shift_state_sensor
+    to: !input drive_state
+    id: departed
+
+  - trigger: state
+    entity_id: !input journey_armed_helper
+    to: "on"
+    id: journey_armed
+
+  - trigger: state
+    entity_id: !input route_destination_sensor
+    id: route_changed
+
+  - trigger: zone
+    entity_id: !input vehicle_tracker
+    zone: !input home_zone
+    event: enter
+    id: arrived_home
+
+  - trigger: state
+    entity_id: !input journey_armed_helper
+    to: "on"
+    for: !input journey_timeout
+    id: journey_timeout
+
+conditions: []
+
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id: departed
+          - condition: template
+            value_template: >-
+              {% set geofence_match =
+                states(geofence_sensor) | trim | lower ==
+                work_geofence_name | trim | lower %}
+              {% set zone_fallback =
+                use_work_zone_fallback and
+                distance(vehicle_tracker, work_zone) | float(999) <=
+                work_zone_distance | float(0.5) %}
+              {{ geofence_match or zone_fallback }}
+        sequence:
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input journey_armed_helper
+          - action: input_boolean.turn_off
+            target:
+              entity_id: !input notification_sent_helper
+          - action: logbook.log
+            data:
+              name: TeslaMate work departure
+              message: >-
+                The vehicle shifted into Drive at the configured work location.
+                The Home ETA notification is armed.
+              entity_id: !input vehicle_tracker
+
+      - conditions:
+          - condition: trigger
+            id:
+              - journey_armed
+              - route_changed
+          - condition: state
+            entity_id: !input journey_armed_helper
+            state: "on"
+          - condition: state
+            entity_id: !input notification_sent_helper
+            state: "off"
+          - condition: template
+            value_template: >-
+              {% set destination = states(route_destination_sensor) | trim | lower %}
+              {{
+                destination not in ['', 'unknown', 'unavailable', 'none'] and
+                destination == home_destination_name | trim | lower
+              }}
+        sequence:
+          - delay:
+              seconds: !input route_stabilization_seconds
+          - condition: state
+            entity_id: !input journey_armed_helper
+            state: "on"
+          - condition: state
+            entity_id: !input notification_sent_helper
+            state: "off"
+          - condition: template
+            value_template: >-
+              {% set destination = states(route_destination_sensor) | trim | lower %}
+              {% set minutes = states(route_minutes_sensor) | float(-1) %}
+              {{ destination == home_destination_name | trim | lower and minutes >= 0 }}
+          - variables:
+              route_minutes_raw: "{{ states(route_minutes_sensor) | float(0) }}"
+              route_minutes: "{{ states(route_minutes_sensor) | float(0) | round(0) | int }}"
+              route_distance: "{{ states(route_distance_sensor) | float(0) | round(1) }}"
+              traffic_delay: "{{ states(traffic_delay_sensor) | float(0) | round(0) | int }}"
+              arrival_time: >-
+                {{
+                  (as_timestamp(now()) + (states(route_minutes_sensor) | float(0) * 60))
+                  | timestamp_custom('%-I:%M %p', true)
+                }}
+              distance_unit: >-
+                {{ state_attr(route_distance_sensor, 'unit_of_measurement') or '' }}
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input notification_sent_helper
+          - action: "{{ notification_service }}"
+            data:
+              title: "{{ traveler_name }} is heading home"
+              message: >-
+                ETA {{ arrival_time }} — about {{ route_minutes }} minutes away
+                and {{ route_distance }}{% if distance_unit %} {{ distance_unit }}{% endif %}
+                remaining.{% if traffic_delay | int(0) > 0 %}
+                The route currently includes about {{ traffic_delay }} minutes of
+                traffic delay.{% endif %}
+              data:
+                tag: "{{ notification_tag }}"
+                group: teslamate-travel
+                interruption-level: "{{ interruption_level }}"
+          - action: logbook.log
+            data:
+              name: TeslaMate Home ETA
+              message: >-
+                Sent a Home ETA of {{ arrival_time }}, approximately
+                {{ route_minutes }} minutes away.
+              entity_id: !input route_destination_sensor
+
+      - conditions:
+          - condition: trigger
+            id: arrived_home
+          - condition: state
+            entity_id: !input journey_armed_helper
+            state: "on"
+        sequence:
+          - delay: "00:02:00"
+          - action: input_boolean.turn_off
+            target:
+              entity_id:
+                - !input journey_armed_helper
+                - !input notification_sent_helper
+          - action: logbook.log
+            data:
+              name: TeslaMate Home Arrival
+              message: The journey and notification flags were reset after arriving home.
+              entity_id: !input vehicle_tracker
+
+      - conditions:
+          - condition: trigger
+            id: journey_timeout
+        sequence:
+          - action: input_boolean.turn_off
+            target:
+              entity_id:
+                - !input journey_armed_helper
+                - !input notification_sent_helper
+          - action: logbook.log
+            data:
+              name: TeslaMate journey timeout
+              message: The work-origin journey expired and its helpers were reset.
+              entity_id: !input journey_armed_helper
