@@ -6,8 +6,11 @@ blueprint:
 
     This blueprint is designed for TeslaMate MQTT entities discovered in Home
     Assistant. It remembers that the journey originated at work, waits for the
-    route data to stabilize, sends one notification, and resets after the car
-    arrives home or the journey timeout expires.
+    route data to stabilize, notifies every configured device once, and resets
+    after the car arrives home or the journey timeout expires.
+
+    Any number of mobile notification actions can be listed, so several phones
+    receive the same ETA for a single journey.
 
     Before creating the automation, create two Toggle helpers:
 
@@ -137,12 +140,15 @@ blueprint:
           selector:
             text: {}
         notification_service:
-          name: Mobile notification action
+          name: Mobile notification actions
           description: >-
-            Full Home Assistant notify action, for example
-            `notify.mobile_app_stephanis_iphone`.
+            One or more Home Assistant notify actions, one per row, for example
+            `notify.mobile_app_stephanis_iphone`. Every device listed here receives
+            the same ETA notification. A device that fails to notify does not stop
+            the remaining devices.
           selector:
-            text: {}
+            text:
+              multiple: true
         notification_tag:
           name: Notification tag
           description: Used by the mobile app to group or replace this notification.
@@ -231,6 +237,11 @@ variables:
   notification_sent_helper: !input notification_sent_helper
   traveler_name: !input traveler_name
   notification_service: !input notification_service
+  notification_services: >-
+    {% set raw = notification_service %}
+    {% set entries = raw.replace('\n', ',').split(',')
+       if raw is string else (raw or []) %}
+    {{ entries | map('string') | map('trim') | reject('eq', '') | list }}
   notification_tag: !input notification_tag
   interruption_level: !input interruption_level
   drive_state: !input drive_state
@@ -341,28 +352,37 @@ actions:
                 }}
               distance_unit: >-
                 {{ state_attr(route_distance_sensor, 'unit_of_measurement') or '' }}
-          - action: input_boolean.turn_on
-            target:
-              entity_id: !input notification_sent_helper
-          - action: "{{ notification_service }}"
-            data:
-              title: "{{ traveler_name }} is heading home"
-              message: >-
+          - variables:
+              notification_title: "{{ traveler_name }} is heading home"
+              notification_message: >-
                 ETA {{ arrival_time }} — about {{ route_minutes }} minutes away
                 and {{ route_distance }}{% if distance_unit %} {{ distance_unit }}{% endif %}
                 remaining.{% if traffic_delay | int(0) > 0 %}
                 The route currently includes about {{ traffic_delay }} minutes of
                 traffic delay.{% endif %}
-              data:
-                tag: "{{ notification_tag }}"
-                group: teslamate-travel
-                interruption-level: "{{ interruption_level }}"
+          - action: input_boolean.turn_on
+            target:
+              entity_id: !input notification_sent_helper
+          - repeat:
+              for_each: "{{ notification_services }}"
+              sequence:
+                - action: "{{ repeat.item }}"
+                  continue_on_error: true
+                  data:
+                    title: "{{ notification_title }}"
+                    message: "{{ notification_message }}"
+                    data:
+                      tag: "{{ notification_tag }}"
+                      group: teslamate-travel
+                      interruption-level: "{{ interruption_level }}"
           - action: logbook.log
             data:
               name: TeslaMate Home ETA
               message: >-
                 Sent a Home ETA of {{ arrival_time }}, approximately
-                {{ route_minutes }} minutes away.
+                {{ route_minutes }} minutes away, to
+                {{ notification_services | count }}
+                device{{ '' if notification_services | count == 1 else 's' }}.
               entity_id: !input route_destination_sensor
 
       - conditions:
