@@ -2,7 +2,7 @@
 
 A Home Assistant blueprint that notifies one or more phones with your ETA when your Tesla leaves work and starts navigating home.
 
-> **Stephani is heading home**
+> **The driver is heading home**
 > ETA 5:42 PM — about 27 minutes away and 14.3 mi remaining. The route currently includes about 6 minutes of traffic delay.
 
 [![Open your Home Assistant instance and show the blueprint import dialog with this blueprint pre-filled.](https://my.home-assistant.io/badges/blueprint_import.svg)](https://my.home-assistant.io/redirect/blueprint_import/?blueprint_url=https%3A%2F%2Fgithub.com%2Fkguy18%2Fteslamate-homeassistant-eta%2Fblob%2Fmain%2Fteslamate_work_to_home_eta.yaml)
@@ -111,8 +111,8 @@ Collapsed by default; the defaults are sensible.
 The **Mobile notification actions** field takes a list. Add a row per device:
 
 ```
-notify.mobile_app_stephanis_iphone
-notify.mobile_app_kurtis_pixel
+notify.mobile_app_drivers_iphone
+notify.mobile_app_partners_pixel
 ```
 
 Every device gets the same notification, with the title, message, tag, and interruption level all computed once before sending — so the phones can't disagree about the ETA.

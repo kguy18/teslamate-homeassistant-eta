@@ -143,7 +143,7 @@ blueprint:
           name: Mobile notification actions
           description: >-
             One or more Home Assistant notify actions, one per row, for example
-            `notify.mobile_app_stephanis_iphone`. Every device listed here receives
+            `notify.mobile_app_drivers_iphone`. Every device listed here receives
             the same ETA notification. A device that fails to notify does not stop
             the remaining devices.
           selector:
